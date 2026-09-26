@@ -2,7 +2,6 @@ package logjournal
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -86,10 +85,9 @@ func (r *decoder2) ReadEntry() (entry *Entry, bytesScanned, bytesProcessed int64
 			return
 		}
 
-		entry = new(Entry)
-		err = json.Unmarshal(payload, entry)
-		if err != nil {
-			return
+		entry = &Entry{
+			Ts:   ts,
+			Data: payload,
 		}
 
 		r.bytesProcessed += payloadLen

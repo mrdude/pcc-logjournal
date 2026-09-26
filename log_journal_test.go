@@ -5,10 +5,17 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"git.home.prztl.com/git/w/prztl-common-go/pcommon"
 )
 
 func TestPartitionIO(t *testing.T) {
-	d, err := StartJournal(t.Context(), t.TempDir())
+	ctx := t.Context()
+
+	logger := pcommon.MustCreateLogger()
+	ctx = pcommon.WithLoggerContextValue(ctx, logger)
+
+	d, err := StartJournal(ctx, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +40,7 @@ func TestPartitionIO(t *testing.T) {
 	}
 
 	// read the messages back
-	scanner := d.ScanJournal(t.Context(), now.Add(-10*time.Minute), now.Add(10*time.Minute))
+	scanner := d.ScanJournal(ctx, now.Add(-10*time.Minute), now.Add(10*time.Minute))
 
 	var (
 		actual []Entry
