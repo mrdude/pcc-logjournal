@@ -11,15 +11,19 @@ import (
 	"go.uber.org/zap"
 )
 
+type GCConfig struct {
+	MaxAge  time.Duration
+	MaxDisk int64
+}
+
 // returns a list of deleted filekeys
-func executeGC(ctx context.Context, dir *dir) ([]PartitionKey, error) {
+func executeGC(ctx context.Context, dir *dir, cfg *GCConfig) ([]PartitionKey, error) {
 	logger := pcommon.GetLogger(ctx)
 
 	var deleted []PartitionKey
 
 	// calculate the earliest filekey we will allow
-	const day = 24 * time.Hour
-	deleteBefore := PartitionKeyFromTimestamp(time.Now().UTC().Add(-7 * day)) // TODO bump this back up to 60 days once the logserver has more disk
+	deleteBefore := PartitionKeyFromTimestamp(time.Now().UTC().Add(-cfg.MaxAge))
 	deleteBefore.segment = -1
 
 	// list all filekeys
@@ -56,15 +60,7 @@ func executeGC(ctx context.Context, dir *dir) ([]PartitionKey, error) {
 		return nil, err
 	}
 
-	// if the total journal size is above the high watermark, start deleting files
-	const (
-		kb = 1024
-		mb = kb * 1024
-		gb = mb * 1024
-
-		highWatermark = 15 * gb // TODO set back to 50GB once we have more disk space
-		lowWatermark  = 10 * gb // TODO set back to 40GB once we have more disk space
-	)
+	// if the total journal size is above the max disk usage, start deleting files
 	var (
 		fileSizes                        = make(map[PartitionKey]int64) // map of fileKey -> size of that file, for all fileKeys we have already scanned
 		totalJournalSize           int64 = 0
@@ -82,9 +78,9 @@ func executeGC(ctx context.Context, dir *dir) ([]PartitionKey, error) {
 		fileSizes[fk] = info.Size()
 		totalJournalSize += info.Size()
 
-		// if we have exceeded the high watermark, delete files until we hit the low watermark
-		if totalJournalSize > highWatermark {
-			for totalJournalSize > lowWatermark && deleteBeforeIndexExclusive < len(filekeys) {
+		// if we have exceeded the max disk usage, delete files
+		if totalJournalSize > cfg.MaxDisk {
+			for totalJournalSize > cfg.MaxDisk && deleteBeforeIndexExclusive < len(filekeys) {
 				// mark the earliest file we have left for deletion
 				sz := fileSizes[filekeys[deleteBeforeIndexExclusive]]
 				totalJournalSize -= sz

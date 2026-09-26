@@ -28,11 +28,36 @@ type Entry struct {
 }
 
 // StartJournal opens a journal for appending
-func StartJournal(ctx context.Context, journalDir string) (*Journal, error) {
+func StartJournal(ctx context.Context, journalDir string, gcCfg *GCConfig) (*Journal, error) {
 	if err := os.Mkdir(journalDir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, fmt.Errorf("failed to create journal dir: %w", err)
 	}
 
+	// validate GC config
+	const (
+		day = 24 * time.Hour
+
+		kb = 1024
+		mb = kb * 1024
+		gb = mb * 1024
+	)
+
+	if gcCfg == nil {
+		gcCfg = &GCConfig{
+			MaxAge:  7 * day,
+			MaxDisk: 15 * gb,
+		}
+	}
+
+	if gcCfg.MaxAge <= 0 {
+		gcCfg.MaxAge = 7 * day
+	}
+
+	if gcCfg.MaxDisk <= 0 {
+		gcCfg.MaxDisk = 15 * gb
+	}
+
+	// build journal
 	j := &Journal{
 		journalDir: &dir{d: journalDir},
 		writers:    make(map[PartitionKey]*indexWriter),
@@ -53,7 +78,7 @@ func StartJournal(ctx context.Context, journalDir string) (*Journal, error) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				j.gc(ctx)
+				j.gc(ctx, gcCfg)
 				t.Reset(PartitionTimeGranularity)
 			}
 		}
@@ -62,11 +87,11 @@ func StartJournal(ctx context.Context, journalDir string) (*Journal, error) {
 	return j, nil
 }
 
-func (j *Journal) gc(ctx context.Context) {
+func (j *Journal) gc(ctx context.Context, cfg *GCConfig) {
 	logger := pcommon.GetLogger(ctx)
 
 	logger.Info("executing GC")
-	deleted, err := executeGC(ctx, j.journalDir)
+	deleted, err := executeGC(ctx, j.journalDir, cfg)
 	if err != nil {
 		logger.Error("Failed to execute GC", zap.Error(err))
 		return
